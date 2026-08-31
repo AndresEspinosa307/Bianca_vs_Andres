@@ -520,6 +520,136 @@
     .board-frame{ padding:8px; }
     #board{ --sq: clamp(26px, calc((100vw - 40px) / 8), 74px); }
   }
+
+  /* ===== cartaz de comemoração da vitória ===== */
+  #victory-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(10,16,12,0.78);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    z-index:999;
+    padding:20px;
+    cursor:pointer;
+  }
+  #victory-overlay.show{ display:flex; }
+
+  .victory-poster{
+    position:relative;
+    width:min(92vw, 460px);
+    background:
+      radial-gradient(140% 100% at 50% 0%, rgba(255,255,255,0.10), transparent 60%),
+      linear-gradient(160deg, var(--walnut) 0%, var(--walnut-dark) 100%);
+    border-radius:16px;
+    padding:26px 22px 30px;
+    text-align:center;
+    box-shadow:0 30px 80px rgba(0,0,0,0.65), inset 0 0 0 3px rgba(201,162,75,0.55);
+    animation:posterPop .45s cubic-bezier(.2,1.4,.4,1) both;
+    cursor:default;
+  }
+  @keyframes posterPop{
+    0%{ transform:scale(0.7) rotate(-3deg); opacity:0; }
+    60%{ transform:scale(1.05) rotate(1deg); opacity:1; }
+    100%{ transform:scale(1) rotate(0deg); opacity:1; }
+  }
+
+  .victory-poster::before{
+    content:"";
+    position:absolute;
+    inset:8px;
+    border:1.5px solid rgba(201,162,75,0.55);
+    border-radius:11px;
+    pointer-events:none;
+  }
+
+  .victory-title{
+    font-family:'Cinzel', serif;
+    color:var(--brass-light);
+    letter-spacing:0.04em;
+    font-size:clamp(20px, 5.2vw, 30px);
+    text-shadow:0 3px 10px rgba(0,0,0,0.55);
+    margin:4px 0 4px;
+  }
+  .victory-subtitle{
+    font-family:'Inter', sans-serif;
+    font-size:11px;
+    letter-spacing:0.16em;
+    text-transform:uppercase;
+    color:var(--cream-dark);
+    opacity:0.75;
+    margin-bottom:16px;
+  }
+
+  .victory-horse-frame{
+    width:min(70%, 240px);
+    aspect-ratio:1/1;
+    margin:0 auto 14px;
+    border-radius:14px;
+    background:
+      radial-gradient(120% 120% at 50% 0%, rgba(201,162,75,0.28), transparent 65%),
+      linear-gradient(160deg, rgba(240,233,214,0.10), rgba(240,233,214,0.02));
+    border:2px solid var(--brass);
+    box-shadow:0 12px 30px rgba(0,0,0,0.5), inset 0 0 0 2px rgba(0,0,0,0.25);
+    display:flex;
+    align-items:flex-end;
+    justify-content:center;
+    overflow:hidden;
+  }
+  .victory-horse-frame img{
+    width:88%;
+    height:96%;
+    object-fit:contain;
+    object-position:center bottom;
+    filter:drop-shadow(0 8px 10px rgba(0,0,0,0.55));
+  }
+
+  .victory-team{
+    font-family:'Cinzel', serif;
+    font-size:15px;
+    color:var(--cream);
+    letter-spacing:0.05em;
+    margin-bottom:18px;
+  }
+
+  .victory-close{
+    font-family:'Inter', sans-serif;
+    font-size:11px;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    color:var(--cream-dark);
+    opacity:0.65;
+  }
+
+  /* confete caindo */
+  #confetti-layer{
+    position:fixed;
+    inset:0;
+    pointer-events:none;
+    overflow:hidden;
+    z-index:1000;
+  }
+  .confetti-piece{
+    position:absolute;
+    top:-24px;
+    width:9px;
+    height:14px;
+    opacity:0.95;
+    animation-name:confettiFall;
+    animation-timing-function:linear;
+    animation-iteration-count:1;
+    animation-fill-mode:forwards;
+  }
+  @keyframes confettiFall{
+    0%{
+      transform:translateY(0) translateX(0) rotate(0deg);
+      opacity:1;
+    }
+    100%{
+      transform:translateY(110vh) translateX(var(--drift, 40px)) rotate(var(--spin, 480deg));
+      opacity:0.85;
+    }
+  }
 </style>
 </head>
 <body>
@@ -604,6 +734,23 @@
     <source src="1947_ Suite for Solo Piano &amp; Orchestra_ II. Bracken Road.mp3" type="audio/mpeg">
     <source src="1947_ Suite for Solo Piano &amp; Orchestra_ II. Bracken Road.m4a" type="audio/mp4">
   </audio>
+  <!-- camada de confete caindo (preenchida dinamicamente em JS) -->
+  <div id="confetti-layer"></div>
+
+  <!-- cartaz de comemoração exibido quando a partida termina em xeque-mate -->
+  <div id="victory-overlay">
+    <div class="victory-poster">
+      <div class="crest"><span class="line"></span><span class="diamond"></span><span class="line"></span></div>
+      <h2 class="victory-title">&iexcl;Una vez m&aacute;s gan&oacute; el mejor!</h2>
+      <div class="victory-subtitle">Xeque-mate</div>
+      <div class="victory-horse-frame">
+        <img id="victory-horse-img" alt="Cavalo do time vencedor">
+      </div>
+      <div id="victory-team" class="victory-team">Brancas (Bianca)</div>
+      <div class="victory-close">Toque para fechar</div>
+    </div>
+  </div>
+
   <script>
     (function(){
       const bgAudio = document.getElementById('bg-audio');
@@ -682,6 +829,7 @@ let lastMove = null;
 let botColor = 'b';       // 'w', 'b', or '' (no bot)
 let botLevel = 'medium';  // easy | medium | hard | master
 let botThinking = false;
+let victoryShown = false; // evita mostrar o cartaz de comemoração mais de uma vez por partida
 
 /* ================= WOODEN PIECE SOUND ================= */
 // Synthesised "wooden click/knock" sound (no external audio files needed).
@@ -1044,6 +1192,11 @@ function updateSidePanel(){
   } else if(game.in_checkmate()){
     statusEl.textContent = 'Xeque-mate! ' + (turn === 'w' ? 'Pretas' : 'Brancas') + ' vencem.';
     statusEl.classList.add('alert');
+    if(!victoryShown){
+      victoryShown = true;
+      const winnerColor = turn === 'w' ? 'b' : 'w'; // quem estava para jogar perdeu
+      showVictoryPoster(winnerColor);
+    }
   } else if(game.in_stalemate()){
     statusEl.textContent = 'Empate por afogamento.';
     statusEl.classList.add('alert');
@@ -1102,6 +1255,8 @@ document.getElementById('reset-btn').addEventListener('click', ()=>{
   selectedSquare = null;
   legalTargets = [];
   lastMove = null;
+  victoryShown = false;
+  hideVictoryPoster();
   render();
 });
 
@@ -1118,8 +1273,75 @@ document.getElementById('undo-btn').addEventListener('click', ()=>{
   legalTargets = [];
   const h = game.history({verbose:true});
   lastMove = h.length ? h[h.length-1] : null;
+  victoryShown = false;
+  hideVictoryPoster();
   render();
 });
+
+/* ================= CARTAZ DE COMEMORAÇÃO + CONFETE ================= */
+function showVictoryPoster(winnerColor){
+  const img = document.getElementById('victory-horse-img');
+  const teamLabel = document.getElementById('victory-team');
+  const overlay = document.getElementById('victory-overlay');
+
+  const royalKnight = ROYAL_IMAGES[winnerColor] && ROYAL_IMAGES[winnerColor].n;
+  if(royalKnight) img.src = royalKnight;
+
+  teamLabel.textContent = winnerColor === 'w' ? 'Brancas (Bianca)' : 'Pretas (Voc\u00ea)';
+
+  overlay.classList.add('show');
+  launchConfetti();
+}
+
+function hideVictoryPoster(){
+  const overlay = document.getElementById('victory-overlay');
+  overlay.classList.remove('show');
+  const layer = document.getElementById('confetti-layer');
+  layer.innerHTML = '';
+}
+
+// clique no fundo escurecido fecha o cartaz (clique dentro do cartaz não fecha)
+document.getElementById('victory-overlay').addEventListener('click', (e)=>{
+  if(e.target.id === 'victory-overlay') hideVictoryPoster();
+});
+
+const CONFETTI_COLORS = ['#C9A24B', '#e6c979', '#F0E9D6', '#1F3D2E', '#a5402e', '#b9c2c9'];
+
+function launchConfetti(){
+  const layer = document.getElementById('confetti-layer');
+  layer.innerHTML = '';
+
+  const pieceCount = 90;
+  for(let i = 0; i < pieceCount; i++){
+    const piece = document.createElement('div');
+    piece.className = 'confetti-piece';
+
+    const left = Math.random() * 100;
+    const color = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
+    const drift = (Math.random() * 220 - 110) + 'px';
+    const spin = Math.floor(Math.random() * 720 - 360) + 'deg';
+    const duration = 2.6 + Math.random() * 2.2;
+    const delay = Math.random() * 0.9;
+    const size = 6 + Math.random() * 7;
+    const round = Math.random() < 0.5;
+
+    piece.style.left = left + 'vw';
+    piece.style.background = color;
+    piece.style.width = size + 'px';
+    piece.style.height = (size * 1.5) + 'px';
+    piece.style.borderRadius = round ? '50%' : '2px';
+    piece.style.setProperty('--drift', drift);
+    piece.style.setProperty('--spin', spin);
+    piece.style.animationDuration = duration + 's';
+    piece.style.animationDelay = delay + 's';
+
+    layer.appendChild(piece);
+  }
+
+  // remove as peças de confete depois que a animação termina
+  setTimeout(()=>{ layer.innerHTML = ''; }, 5200);
+}
+/* ======================================================================= */
 
 document.getElementById('bot-side').addEventListener('change', (e)=>{
   botColor = e.target.value;
