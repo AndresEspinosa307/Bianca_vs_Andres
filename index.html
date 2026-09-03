@@ -503,13 +503,13 @@
 
   /* ===== ajustes para telas mobile ===== */
   @media (max-width:600px){
-    body{ padding:16px 8px 40px; }
-    .layout{ gap:16px; }
-    .board-frame{ padding:10px; }
+    body{ padding:16px 4px 40px; }
+    .layout{ gap:14px; }
+    .board-frame{ padding:6px; }
     #board{
       /* calcula a casa com base na largura real da tela, descontando
-         padding do body (8px*2), padding do board-frame (10px*2) e borda (3px*2) */
-      --sq: clamp(28px, calc((100vw - 50px) / 8), 74px);
+         padding do body (4px*2), padding do board-frame (6px*2) e borda (3px*2) */
+      --sq: clamp(34px, calc((100vw - 30px) / 8), 84px);
     }
     .side-panel{ width:100%; max-width:420px; }
     h1{ font-size:clamp(20px,6vw,26px); }
@@ -518,9 +518,9 @@
     select{ padding:10px; font-size:14px; }
   }
   @media (max-width:360px){
-    body{ padding:12px 6px 32px; }
-    .board-frame{ padding:8px; }
-    #board{ --sq: clamp(26px, calc((100vw - 40px) / 8), 74px); }
+    body{ padding:12px 3px 32px; }
+    .board-frame{ padding:5px; }
+    #board{ --sq: clamp(32px, calc((100vw - 22px) / 8), 84px); }
   }
 
   /* ===== cartaz de comemoração da vitória ===== */
