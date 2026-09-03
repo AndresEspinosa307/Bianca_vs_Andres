@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Xadrez Bianca & Cia</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-database-compat.js"></script>
 <style>
   :root{
     --cream:#F0E9D6;
@@ -853,6 +855,26 @@
         </select>
       </div>
 
+      <div class="card" id="online-card">
+        <h3>Jogar Online</h3>
+        <div id="online-setup">
+          <label class="field-label" for="room-code-input">C&oacute;digo da sala</label>
+          <input type="text" id="room-code-input" placeholder="Ex: AB3F9" maxlength="10" autocomplete="off"
+            style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid rgba(201,162,75,0.5);background:var(--green-deep);color:var(--cream);font-family:'Inter',sans-serif;font-size:13px;margin-bottom:10px;box-sizing:border-box;">
+          <button id="create-room-btn">Criar sala nova</button>
+          <button id="join-room-btn" class="secondary" style="margin-top:8px;">Entrar na sala</button>
+          <p id="online-status" style="font-family:'Inter',sans-serif;font-size:12px;opacity:0.8;margin:10px 0 0;"></p>
+        </div>
+        <div id="online-active" style="display:none;">
+          <p style="font-family:'Inter',sans-serif;font-size:12px;opacity:0.85;margin:0 0 8px;line-height:1.6;">
+            Sala: <strong id="online-room-label">&mdash;</strong><br>
+            Voc&ecirc; joga de: <strong id="online-color-label">&mdash;</strong>
+          </p>
+          <p id="online-status-active" style="font-family:'Inter',sans-serif;font-size:12.5px;opacity:0.9;margin:0 0 10px;"></p>
+          <button id="leave-room-btn" class="secondary">Sair da sala online</button>
+        </div>
+      </div>
+
       <div class="card">
         <h3>Vez de jogar</h3>
         <div class="turn-row">
@@ -1022,6 +1044,192 @@ let botColor = 'b';       // 'w', 'b', or '' (no bot)
 let botLevel = 'medium';  // easy | medium | hard | master
 let botThinking = false;
 let victoryShown = false; // evita mostrar o cartaz de comemoração mais de uma vez por partida
+
+/* ================= MULTIPLAYER ONLINE (Firebase Realtime Database) =================
+   1) Crie um projeto gratuito em https://console.firebase.google.com
+   2) Ative "Realtime Database" (modo de teste já serve para começar).
+   3) Em "Configurações do projeto" > "Seus apps" > "Web", copie o objeto de config
+      e cole substituindo o objeto abaixo.
+   ======================================================================================= */
+
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyBU-oMjxHW7FbkOOckE3dt_vpYLVgKcdMQ",
+  authDomain: "xadrez-bianca.firebaseapp.com",
+  databaseURL: "https://xadrez-bianca-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "xadrez-bianca",
+  storageBucket: "xadrez-bianca.firebasestorage.app",
+  messagingSenderId: "1038751088054",
+  appId: "1:1038751088054:web:9e3ddbb65b8c3151521517"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+
+
+let onlineDb = null;
+let onlineMode = false;      // true quando conectado a uma sala online
+let onlineRoomId = null;     // código da sala atual
+let onlineColor = null;      // 'w' ou 'b' — a cor que ESTE dispositivo controla
+let onlineRoomRef = null;    // referência do Firebase para a sala
+let onlineClaimedRef = null; // referência do slot (white/black) que este dispositivo reservou
+let applyingRemoteMove = false;
+
+try {
+  if(firebaseConfig.apiKey !== "COLE_AQUI_SUA_API_KEY"){
+    const app = firebase.initializeApp(firebaseConfig);
+    onlineDb = firebase.database();
+  }
+} catch(err){
+  console.error('Falha ao iniciar Firebase:', err);
+}
+
+function generateRoomCode(){
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for(let i=0;i<5;i++) code += chars[Math.floor(Math.random()*chars.length)];
+  return code;
+}
+
+function setOnlineStatus(text, active){
+  const el = document.getElementById(active ? 'online-status-active' : 'online-status');
+  if(el) el.textContent = text;
+}
+
+// tenta reservar um dos dois lugares (brancas/pretas) de forma atômica,
+// para dois jogadores nunca acabarem com a mesma cor
+async function claimSlot(roomId){
+  const whiteRef = onlineDb.ref('rooms/' + roomId + '/players/white');
+  const whiteRes = await whiteRef.transaction(cur => cur ? undefined : true);
+  if(whiteRes.committed){
+    onlineClaimedRef = whiteRef;
+    return 'w';
+  }
+  const blackRef = onlineDb.ref('rooms/' + roomId + '/players/black');
+  const blackRes = await blackRef.transaction(cur => cur ? undefined : true);
+  if(blackRes.committed){
+    onlineClaimedRef = blackRef;
+    return 'b';
+  }
+  return null; // sala cheia
+}
+
+function pushOnlineState(){
+  if(!onlineMode || !onlineRoomRef) return;
+  onlineRoomRef.update({
+    fen: game.fen(),
+    lastMove: lastMove ? {from:lastMove.from, to:lastMove.to} : null,
+    updatedAt: firebase.database.ServerValue.TIMESTAMP
+  });
+}
+
+async function enterRoom(roomId, isNewRoom){
+  if(!onlineDb){
+    setOnlineStatus('Configure o Firebase no código antes de jogar online (veja os comentários no HTML).', false);
+    return;
+  }
+  roomId = roomId.trim().toUpperCase();
+  if(!roomId){
+    setOnlineStatus('Digite ou gere um código de sala primeiro.', false);
+    return;
+  }
+
+  setOnlineStatus('Conectando...', false);
+  const color = await claimSlot(roomId);
+  if(!color){
+    setOnlineStatus('Essa sala já tem dois jogadores. Tente outro código.', false);
+    return;
+  }
+
+  onlineRoomId = roomId;
+  onlineColor = color;
+  onlineMode = true;
+  onlineRoomRef = onlineDb.ref('rooms/' + roomId);
+
+  // libera o lugar automaticamente se este jogador cair/fechar a aba
+  onlineClaimedRef.onDisconnect().remove();
+
+  if(isNewRoom || color === 'w'){
+    // quem cria a sala define o estado inicial (só grava se ainda não existir fen)
+    onlineRoomRef.child('fen').once('value', snap => {
+      if(!snap.exists()){
+        onlineRoomRef.update({ fen: game.fen(), lastMove: null, createdAt: firebase.database.ServerValue.TIMESTAMP });
+      }
+    });
+  }
+
+  // desliga o bot: no modo online, os dois lados são sempre pessoas
+  botColor = '';
+  document.getElementById('bot-side').value = '';
+
+  document.getElementById('online-setup').style.display = 'none';
+  document.getElementById('online-active').style.display = 'block';
+  document.getElementById('online-room-label').textContent = roomId;
+  document.getElementById('online-color-label').textContent = color === 'w' ? 'Brancas' : 'Pretas';
+  setOnlineStatus('Conectado! Compartilhe o código "' + roomId + '" com o outro jogador.', true);
+
+  onlineRoomRef.on('value', snap => {
+    const data = snap.val();
+    if(!data || !data.fen) return;
+    if(data.fen === game.fen()) return; // nada novo (ou foi a própria jogada que acabamos de enviar)
+    applyingRemoteMove = true;
+    try{
+      game.load(data.fen);
+      lastMove = data.lastMove || null;
+      selectedSquare = null;
+      legalTargets = [];
+      playWoodSound(lastMove && lastMove.captured ? 'capture' : 'move');
+    } finally {
+      applyingRemoteMove = false;
+    }
+    victoryShown = false;
+    render();
+  });
+
+  render();
+}
+
+function leaveRoom(){
+  if(onlineRoomRef) onlineRoomRef.off();
+  if(onlineClaimedRef){
+    onlineClaimedRef.onDisconnect().cancel();
+    onlineClaimedRef.remove();
+  }
+  onlineMode = false;
+  onlineRoomId = null;
+  onlineColor = null;
+  onlineRoomRef = null;
+  onlineClaimedRef = null;
+
+  document.getElementById('online-setup').style.display = 'block';
+  document.getElementById('online-active').style.display = 'none';
+  document.getElementById('room-code-input').value = '';
+  setOnlineStatus('', false);
+  render();
+}
+
+document.getElementById('create-room-btn').addEventListener('click', () => {
+  const code = generateRoomCode();
+  document.getElementById('room-code-input').value = code;
+  game.reset();
+  lastMove = null;
+  selectedSquare = null;
+  legalTargets = [];
+  enterRoom(code, true);
+});
+
+document.getElementById('join-room-btn').addEventListener('click', () => {
+  const code = document.getElementById('room-code-input').value;
+  enterRoom(code, false);
+});
+
+document.getElementById('leave-room-btn').addEventListener('click', leaveRoom);
+/* ================= FIM MULTIPLAYER ONLINE ================= */
 
 /* ================= WOODEN PIECE SOUND ================= */
 // Synthesised "wooden click/knock" sound (no external audio files needed).
@@ -1230,6 +1438,7 @@ function pickBotMove(){
 }
 
 function maybeTriggerBot(){
+  if(onlineMode) return;
   if(!botColor) return;
   if(game.game_over()) return;
   if(game.turn() !== botColor) return;
@@ -1334,6 +1543,7 @@ function render(){
 function onSquareClick(e){
   if(botThinking) return;
   if(botColor && game.turn() === botColor) return; // it's the bot's turn, ignore board clicks
+  if(onlineMode && game.turn() !== onlineColor) return; // não é a sua vez na partida online
 
   const sq = e.currentTarget.dataset.square;
 
@@ -1346,6 +1556,7 @@ function onSquareClick(e){
         playWoodSound(move.captured ? 'capture' : 'move');
         selectedSquare = null;
         legalTargets = [];
+        if(onlineMode) pushOnlineState();
         render();
         return;
       }
@@ -1398,6 +1609,12 @@ function updateSidePanel(){
   } else if(game.in_check()){
     statusEl.textContent = 'Xeque!';
     statusEl.classList.add('alert');
+  } else if(onlineMode){
+    if(game.turn() === onlineColor){
+      statusEl.textContent = selectedSquare ? 'Escolha o destino do lance.' : 'Sua vez! Selecione uma pe\u00e7a.';
+    } else {
+      statusEl.textContent = 'Aguardando o advers\u00e1rio jogar...';
+    }
   } else {
     statusEl.textContent = selectedSquare ? 'Escolha o destino do lance.' : 'Selecione uma pe\u00e7a para mover.';
   }
@@ -1405,8 +1622,8 @@ function updateSidePanel(){
   renderCaptured();
 
   document.getElementById('reset-btn').disabled = botThinking;
-  document.getElementById('undo-btn').disabled = botThinking;
-  document.getElementById('bot-side').disabled = botThinking;
+  document.getElementById('undo-btn').disabled = botThinking || onlineMode;
+  document.getElementById('bot-side').disabled = botThinking || onlineMode;
 }
 
 function renderCaptured(){
@@ -1449,11 +1666,12 @@ document.getElementById('reset-btn').addEventListener('click', ()=>{
   lastMove = null;
   victoryShown = false;
   hideVictoryPoster();
+  if(onlineMode) pushOnlineState();
   render();
 });
 
 document.getElementById('undo-btn').addEventListener('click', ()=>{
-  if(botThinking) return;
+  if(botThinking || onlineMode) return;
   game.undo();
   // if a bot is active and the move now on top was played by the bot, undo
   // one more time so control returns to the human player
