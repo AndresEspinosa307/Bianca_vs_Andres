@@ -1052,12 +1052,6 @@ let victoryShown = false; // evita mostrar o cartaz de comemoração mais de uma
       e cole substituindo o objeto abaixo.
    ======================================================================================= */
 
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyBU-oMjxHW7FbkOOckE3dt_vpYLVgKcdMQ",
   authDomain: "xadrez-bianca.firebaseapp.com",
@@ -1067,10 +1061,6 @@ const firebaseConfig = {
   messagingSenderId: "1038751088054",
   appId: "1:1038751088054:web:9e3ddbb65b8c3151521517"
 };
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-
 
 let onlineDb = null;
 let onlineMode = false;      // true quando conectado a uma sala online
@@ -1082,7 +1072,7 @@ let applyingRemoteMove = false;
 
 try {
   if(firebaseConfig.apiKey !== "COLE_AQUI_SUA_API_KEY"){
-    const app = firebase.initializeApp(firebaseConfig);
+    firebase.initializeApp(firebaseConfig);
     onlineDb = firebase.database();
   }
 } catch(err){
